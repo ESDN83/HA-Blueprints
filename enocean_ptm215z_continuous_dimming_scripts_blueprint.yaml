@@ -315,11 +315,16 @@ actions:
 
     # ----- HALTEN: Dimmen starten -----
     default:
-      - alias: Halten - Dimmen starten (brightness_move_onoff)
+      - alias: Halten - Dimmen starten (UP nutzt _onoff, DOWN nicht)
         action: mqtt.publish
         data:
           topic: "{{ light_set_topic }}"
-          payload: '{"brightness_move_onoff": {{ dim_value }}}'
+          payload: >-
+            {% if dim_direction == 1 %}
+            {"brightness_move_onoff": {{ dim_value }}}
+            {% else %}
+            {"brightness_move": {{ dim_value }}}
+            {% endif %}
 
       - alias: Auf Release warten
         wait_for_trigger:
