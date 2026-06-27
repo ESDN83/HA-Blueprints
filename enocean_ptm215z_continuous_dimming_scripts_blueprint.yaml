@@ -1,18 +1,17 @@
 blueprint:
-  name: EnOcean PTM 215Z - Dimmer + Szenen (v2)
+  name: EnOcean PTM 215Z - Dimmer + Color-Szenen (v2)
   author: Claude for ESDN83
   description: >
     Friends-of-Hue / EnOcean PTM 215Z (Zigbee2MQTT).
 
-    - Kurzdruck Taste 1 (oben links): zeitbasierte Szene anwenden (4 Zeitfenster konfigurierbar).
-    - Kurzdruck Taste 3 (oben rechts): Szenen-Zyklus durch ausgewahlte Szenen.
-    - Kurzdruck Taste 2 oder 4 (unten): Licht aus.
-    - Halten Taste 1 oder 3: heller dimmen (continuous, brightness_move_onoff).
-    - Halten Taste 2 oder 4: dunkler dimmen.
+    - Kurzdruck Taste 1: zeitbasierte Farbe + Helligkeit (4 Zeitfenster).
+    - Kurzdruck Taste 3: Szenen-Zyklus durch bis zu 6 frei konfigurierbare Farb/Helligkeits-Slots.
+    - Kurzdruck Taste 2 oder 4: Licht aus.
+    - Halten Taste 1 oder 3: heller dimmen (brightness_move_onoff).
+    - Halten Taste 2 oder 4: dunkler dimmen (brightness_move, kein Auto-On).
     - Loslassen: Dimmen stoppt.
 
-    Komplett self-contained: keine externen Scripte notwendig.
-    Picker fur Zyklus-Szenen und Zeit-Szenen direkt im Blueprint.
+    Keine externen Scripts noetig. Alle Farben + Helligkeiten direkt im Blueprint.
   domain: automation
   homeassistant:
     min_version: 2024.6.0
@@ -24,7 +23,6 @@ blueprint:
       input:
         base_topic:
           name: Zigbee2MQTT Base Topic
-          description: Wie in Zigbee2MQTT konfiguriert, normalerweise "zigbee2mqtt".
           default: zigbee2mqtt
           selector:
             text:
@@ -36,15 +34,13 @@ blueprint:
             text:
         light_zigbee2mqtt_name:
           name: Licht / Gruppe in Zigbee2MQTT
-          description: >
-            Friendly Name der Lampe oder Gruppe in Zigbee2MQTT (fur das Dimmen via MQTT).
-            Z.B. "Wohnzimmer_Lampen".
+          description: Friendly Name der Lampe oder Z2M-Group fuer das Dimmen via MQTT.
           default: ""
           selector:
             text:
         light_entity:
           name: Licht-Entitat in Home Assistant
-          description: Wird fur "Aus"-Aktion und Status verwendet.
+          description: Wird fuer "Aus" und "Farbe setzen" verwendet.
           selector:
             entity:
               filter:
@@ -56,7 +52,6 @@ blueprint:
       input:
         hold_delay:
           name: Hold-Erkennung
-          description: Zeit in Millisekunden, ab der ein Druck als "Halten" gilt.
           default: 400
           selector:
             number:
@@ -66,18 +61,15 @@ blueprint:
               unit_of_measurement: ms
         dim_speed:
           name: Dimm-Geschwindigkeit
-          description: >
-            Helligkeit-Einheiten pro Sekunde (Zigbee2MQTT brightness_move_onoff).
-            50 = langsam, 150 = mittel, 254 = sehr schnell.
-          default: 180
+          description: Brightness-Einheiten/s. 50 langsam, 150 mittel, 254 sehr schnell.
+          default: 160
           selector:
             number:
               min: 10
               max: 254
               step: 10
         release_timeout:
-          name: Sicherheits-Timeout fur Release
-          description: Falls kein Release empfangen wird, stoppt das Dimmen spatestens nach diesen Sekunden.
+          name: Sicherheits-Timeout
           default: 8
           selector:
             number:
@@ -85,32 +77,184 @@ blueprint:
               max: 30
               step: 1
               unit_of_measurement: s
+        scene_transition:
+          name: Farb-Ubergang
+          description: Dauer der Farb-Anwendung in Sekunden.
+          default: 1
+          selector:
+            number:
+              min: 0
+              max: 10
+              step: 1
+              unit_of_measurement: s
 
-    scripts:
-      name: Script-Aktionen (Taste 1 + 3 kurz)
-      icon: mdi:script-text-play
-      description: >
-        Hier waehlst du je ein HA-Script aus, das bei kurzem Druck auf Taste 1
-        bzw. Taste 3 ausgefuehrt wird. So kannst du beliebige Logik (Szenen,
-        Zeitfenster, scene_presets.apply_preset, Cycle-Counter, etc.) direkt
-        in HA pflegen, ohne den Blueprint anzufassen.
+    time_based:
+      name: Zeitbasierte Farbe (Taste 1 kurz)
+      icon: mdi:clock-time-four-outline
       input:
-        script_time_based:
-          name: Script fuer Taste 1 kurz (zeitbasiert)
-          description: z.B. ein Script das je nach Uhrzeit eine andere Szene/Preset anwendet.
-          default: ""
+        time_color_night:
+          name: Nacht (22:00 - 06:00) - Farbe
+          default: [255, 80, 20]
+          selector:
+            color_rgb:
+        time_brightness_night:
+          name: Nacht - Helligkeit %
+          default: 10
+          selector:
+            number:
+              min: 1
+              max: 100
+              step: 1
+              unit_of_measurement: "%"
+        time_color_morning:
+          name: Morgen (06:00 - 10:00) - Farbe
+          default: [255, 200, 130]
+          selector:
+            color_rgb:
+        time_brightness_morning:
+          name: Morgen - Helligkeit %
+          default: 80
+          selector:
+            number:
+              min: 1
+              max: 100
+              step: 1
+              unit_of_measurement: "%"
+        time_color_day:
+          name: Tag (10:00 - 17:00) - Farbe
+          default: [255, 240, 220]
+          selector:
+            color_rgb:
+        time_brightness_day:
+          name: Tag - Helligkeit %
+          default: 100
+          selector:
+            number:
+              min: 1
+              max: 100
+              step: 1
+              unit_of_measurement: "%"
+        time_color_evening:
+          name: Abend (17:00 - 22:00) - Farbe
+          default: [255, 170, 80]
+          selector:
+            color_rgb:
+        time_brightness_evening:
+          name: Abend - Helligkeit %
+          default: 50
+          selector:
+            number:
+              min: 1
+              max: 100
+              step: 1
+              unit_of_measurement: "%"
+
+    scene_cycle:
+      name: Szenen-Zyklus (Taste 3 kurz)
+      icon: mdi:playlist-play
+      description: >
+        Bis zu 6 Cycle-Slots. cycle_length sagt wie viele davon aktiv sind.
+        Bei jedem Kurzdruck wird der nachste Slot angewendet.
+      input:
+        cycle_length:
+          name: Anzahl aktiver Cycle-Slots (1 - 6)
+          default: 4
+          selector:
+            number:
+              min: 1
+              max: 6
+              step: 1
+        cycle_counter:
+          name: Counter-Helfer fuer Cycle-Position
+          description: counter.xxx Helper, z.B. counter.wohnzimmer_szene_index.
           selector:
             entity:
               filter:
-                - domain: script
-        script_cycle:
-          name: Script fuer Taste 3 kurz (Szenen-Zyklus)
-          description: z.B. ein Script das einen Counter erhoeht und das nachste Preset anwendet.
-          default: ""
+                - domain: counter
+        cycle_color_1:
+          name: Slot 1 - Farbe
+          default: [255, 220, 180]
           selector:
-            entity:
-              filter:
-                - domain: script
+            color_rgb:
+        cycle_brightness_1:
+          name: Slot 1 - Helligkeit %
+          default: 100
+          selector:
+            number:
+              min: 1
+              max: 100
+              step: 1
+              unit_of_measurement: "%"
+        cycle_color_2:
+          name: Slot 2 - Farbe
+          default: [255, 170, 80]
+          selector:
+            color_rgb:
+        cycle_brightness_2:
+          name: Slot 2 - Helligkeit %
+          default: 70
+          selector:
+            number:
+              min: 1
+              max: 100
+              step: 1
+              unit_of_measurement: "%"
+        cycle_color_3:
+          name: Slot 3 - Farbe
+          default: [255, 100, 30]
+          selector:
+            color_rgb:
+        cycle_brightness_3:
+          name: Slot 3 - Helligkeit %
+          default: 40
+          selector:
+            number:
+              min: 1
+              max: 100
+              step: 1
+              unit_of_measurement: "%"
+        cycle_color_4:
+          name: Slot 4 - Farbe
+          default: [180, 200, 255]
+          selector:
+            color_rgb:
+        cycle_brightness_4:
+          name: Slot 4 - Helligkeit %
+          default: 100
+          selector:
+            number:
+              min: 1
+              max: 100
+              step: 1
+              unit_of_measurement: "%"
+        cycle_color_5:
+          name: Slot 5 - Farbe
+          default: [255, 220, 180]
+          selector:
+            color_rgb:
+        cycle_brightness_5:
+          name: Slot 5 - Helligkeit %
+          default: 50
+          selector:
+            number:
+              min: 1
+              max: 100
+              step: 1
+              unit_of_measurement: "%"
+        cycle_color_6:
+          name: Slot 6 - Farbe
+          default: [255, 80, 20]
+          selector:
+            color_rgb:
+        cycle_brightness_6:
+          name: Slot 6 - Helligkeit %
+          default: 25
+          selector:
+            number:
+              min: 1
+              max: 100
+              step: 1
+              unit_of_measurement: "%"
 
 mode: restart
 max_exceeded: silent
@@ -138,8 +282,31 @@ variables:
   hold_delay: !input hold_delay
   dim_speed: !input dim_speed
   release_timeout: !input release_timeout
-  script_time_based: !input script_time_based
-  script_cycle: !input script_cycle
+  scene_transition: !input scene_transition
+  cycle_length: !input cycle_length
+  cycle_counter: !input cycle_counter
+  cycle_colors:
+    - !input cycle_color_1
+    - !input cycle_color_2
+    - !input cycle_color_3
+    - !input cycle_color_4
+    - !input cycle_color_5
+    - !input cycle_color_6
+  cycle_brightnesses:
+    - !input cycle_brightness_1
+    - !input cycle_brightness_2
+    - !input cycle_brightness_3
+    - !input cycle_brightness_4
+    - !input cycle_brightness_5
+    - !input cycle_brightness_6
+  time_color_night: !input time_color_night
+  time_color_morning: !input time_color_morning
+  time_color_day: !input time_color_day
+  time_color_evening: !input time_color_evening
+  time_brightness_night: !input time_brightness_night
+  time_brightness_morning: !input time_brightness_morning
+  time_brightness_day: !input time_brightness_day
+  time_brightness_evening: !input time_brightness_evening
 
 actions:
   - variables:
@@ -150,7 +317,6 @@ actions:
       dim_value: "{{ (dim_speed | int) * dim_direction }}"
       light_set_topic: "{{ base_topic ~ '/' ~ light_zigbee2mqtt_name ~ '/set' }}"
 
-  # Warten ob Release vor hold_delay kommt -> Kurzdruck, sonst -> Halten
   - wait_for_trigger:
       - trigger: mqtt
         topic: "{{ base_topic ~ '/' ~ controller }}"
@@ -167,15 +333,63 @@ actions:
             value_template: "{{ wait.trigger is not none }}"
         sequence:
           - choose:
-              # Taste 1 kurz: zeitbasiertes Script
-              - alias: Taste 1 - Script zeitbasiert
+              # Taste 1 kurz: zeitbasierte Farbe
+              - alias: Taste 1 - Zeitbasierte Farbe
                 conditions:
                   - condition: template
-                    value_template: "{{ button == 1 and script_time_based | length > 0 }}"
+                    value_template: "{{ button == 1 }}"
                 sequence:
-                  - action: script.turn_on
-                    target:
-                      entity_id: "{{ script_time_based }}"
+                  - choose:
+                      - alias: Nacht 22:00 - 06:00
+                        conditions:
+                          - condition: or
+                            conditions:
+                              - condition: time
+                                after: "22:00:00"
+                              - condition: time
+                                before: "06:00:00"
+                        sequence:
+                          - action: light.turn_on
+                            target:
+                              entity_id: !input light_entity
+                            data:
+                              rgb_color: "{{ time_color_night }}"
+                              brightness_pct: "{{ time_brightness_night | int }}"
+                              transition: "{{ scene_transition | int }}"
+                      - alias: Morgen 06:00 - 10:00
+                        conditions:
+                          - condition: time
+                            after: "06:00:00"
+                            before: "10:00:00"
+                        sequence:
+                          - action: light.turn_on
+                            target:
+                              entity_id: !input light_entity
+                            data:
+                              rgb_color: "{{ time_color_morning }}"
+                              brightness_pct: "{{ time_brightness_morning | int }}"
+                              transition: "{{ scene_transition | int }}"
+                      - alias: Tag 10:00 - 17:00
+                        conditions:
+                          - condition: time
+                            after: "10:00:00"
+                            before: "17:00:00"
+                        sequence:
+                          - action: light.turn_on
+                            target:
+                              entity_id: !input light_entity
+                            data:
+                              rgb_color: "{{ time_color_day }}"
+                              brightness_pct: "{{ time_brightness_day | int }}"
+                              transition: "{{ scene_transition | int }}"
+                    default:
+                      - action: light.turn_on
+                        target:
+                          entity_id: !input light_entity
+                        data:
+                          rgb_color: "{{ time_color_evening }}"
+                          brightness_pct: "{{ time_brightness_evening | int }}"
+                          transition: "{{ scene_transition | int }}"
 
               # Taste 2 kurz: Licht aus
               - alias: Taste 2 - Licht aus
@@ -187,15 +401,38 @@ actions:
                     target:
                       entity_id: !input light_entity
 
-              # Taste 3 kurz: Szenen-Zyklus Script
-              - alias: Taste 3 - Script Szenen-Zyklus
+              # Taste 3 kurz: Cycle
+              - alias: Taste 3 - Szenen-Zyklus
                 conditions:
                   - condition: template
-                    value_template: "{{ button == 3 and script_cycle | length > 0 }}"
+                    value_template: "{{ button == 3 }}"
                 sequence:
-                  - action: script.turn_on
+                  - variables:
+                      cycle_len: "{{ cycle_length | int(1) }}"
+                      cycle_index: "{{ states(cycle_counter) | int(0) % cycle_len }}"
+                      next_color: "{{ cycle_colors[cycle_index | int] }}"
+                      next_brightness: "{{ cycle_brightnesses[cycle_index | int] | int }}"
+                  - action: light.turn_on
                     target:
-                      entity_id: "{{ script_cycle }}"
+                      entity_id: !input light_entity
+                    data:
+                      rgb_color: "{{ next_color }}"
+                      brightness_pct: "{{ next_brightness }}"
+                      transition: "{{ scene_transition | int }}"
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ (states(cycle_counter) | int(0)) >= (cycle_len | int) - 1 }}"
+                        sequence:
+                          - action: counter.set_value
+                            target:
+                              entity_id: !input cycle_counter
+                            data:
+                              value: 0
+                    default:
+                      - action: counter.increment
+                        target:
+                          entity_id: !input cycle_counter
 
               # Taste 4 kurz: Licht aus
               - alias: Taste 4 - Licht aus
@@ -207,7 +444,7 @@ actions:
                     target:
                       entity_id: !input light_entity
 
-    # ----- HALTEN: Dimmen starten -----
+    # ----- HALTEN: Dimmen -----
     default:
       - alias: Halten - Dimmen starten (UP nutzt _onoff, DOWN nicht)
         action: mqtt.publish
