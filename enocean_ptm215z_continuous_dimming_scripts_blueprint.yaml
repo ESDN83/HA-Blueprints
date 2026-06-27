@@ -1,0 +1,184 @@
+blueprint:
+  name: EnOcean PTM 215Z - Continuous Dimming + Scripts
+  author: Codex for seel
+  description: >
+    Blueprint fuer Friends-of-Hue / EnOcean PTM 215Z mit Zigbee2MQTT.
+    Kurzdruck startet Scripts oder schaltet aus. Gedrueckthalten dimmt
+    kontinuierlich per brightness_move_onoff und stoppt beim Loslassen.
+  domain: automation
+  homeassistant:
+    min_version: 2024.6.0
+  input:
+    mqtt_settings:
+      name: MQTT / Controller
+      input:
+        base_topic:
+          name: Zigbee2MQTT Base Topic
+          default: zigbee2mqtt
+        controller:
+          name: Controller-Name
+          description: Friendly Name des Schalters in Zigbee2MQTT, z.B. Wohnzimmer_Switch.
+          default: ""
+        light_zigbee2mqtt_name:
+          name: Zigbee2MQTT Licht-Name
+          description: Friendly Name der Lampe oder Gruppe in Zigbee2MQTT, z.B. Wohnzimmer_Lampen.
+          default: ""
+    targets:
+      name: Licht und Scripts
+      input:
+        light_entity:
+          name: Licht in Home Assistant
+          selector:
+            entity:
+              filter:
+                - domain: light
+        time_based_light_script:
+          name: Script Zeitbasiertes Licht
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: script
+        scene_cycle_script:
+          name: Script Szenen-Zyklus
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: script
+    dimming:
+      name: Dimmen
+      input:
+        hold_delay:
+          name: Haltezeit-Erkennung
+          default: 500
+          selector:
+            number:
+              min: 100
+              max: 1500
+              step: 50
+              unit_of_measurement: ms
+        dim_speed:
+          name: Dimmgeschwindigkeit
+          default: 50
+          selector:
+            number:
+              min: 1
+              max: 254
+              step: 1
+        release_timeout:
+          name: Sicherheits-Timeout
+          default: 8
+          selector:
+            number:
+              min: 1
+              max: 30
+              step: 1
+              unit_of_measurement: s
+
+trigger_variables:
+  base_topic: !input base_topic
+  controller: !input controller
+
+triggers:
+  - trigger: mqtt
+    topic: "{{ base_topic ~ '/' ~ controller ~ '/action' }}"
+    id: action_topic
+  - trigger: mqtt
+    topic: "{{ base_topic ~ '/' ~ controller }}"
+    id: json_topic
+
+conditions:
+  - condition: template
+    value_template: >
+      {% set action = trigger.payload if trigger.id == 'action_topic' else trigger.payload_json.action | default('') %}
+      {{ action is string and action.startswith('press_') }}
+
+variables:
+  light_zigbee2mqtt_name: !input light_zigbee2mqtt_name
+  time_based_light_script: !input time_based_light_script
+  scene_cycle_script: !input scene_cycle_script
+  hold_delay: !input hold_delay
+  dim_speed: !input dim_speed
+  release_timeout: !input release_timeout
+
+actions:
+  - variables:
+      action: "{{ trigger.payload if trigger.id == 'action_topic' else trigger.payload_json.action | default('') }}"
+      button: "{{ action | regex_replace('^(press_|release_)', '') }}"
+      release_action: "{{ 'release_' ~ button }}"
+      dim_direction: "{{ 1 if button in ['1', '3'] else -1 }}"
+      dim_value: "{{ (dim_speed | int) * (dim_direction | int) }}"
+      light_set_topic: "{{ base_topic ~ '/' ~ light_zigbee2mqtt_name ~ '/set' }}"
+
+  - wait_for_trigger:
+      - trigger: mqtt
+        topic: "{{ base_topic ~ '/' ~ controller ~ '/action' }}"
+        payload: "{{ release_action }}"
+      - trigger: mqtt
+        topic: "{{ base_topic ~ '/' ~ controller }}"
+        value_template: "{{ value_json.action | default('') == release_action }}"
+    timeout:
+      milliseconds: "{{ hold_delay }}"
+    continue_on_timeout: true
+
+  - choose:
+      - alias: Kurzdruck
+        conditions:
+          - condition: template
+            value_template: "{{ wait.trigger is not none }}"
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ button == '1' and time_based_light_script | length > 0 }}"
+                sequence:
+                  - action: script.turn_on
+                    target:
+                      entity_id: !input time_based_light_script
+              - conditions:
+                  - condition: template
+                    value_template: "{{ button == '2' }}"
+                sequence:
+                  - action: light.turn_off
+                    target:
+                      entity_id: !input light_entity
+              - conditions:
+                  - condition: template
+                    value_template: "{{ button == '3' and scene_cycle_script | length > 0 }}"
+                sequence:
+                  - action: script.turn_on
+                    target:
+                      entity_id: !input scene_cycle_script
+              - conditions:
+                  - condition: template
+                    value_template: "{{ button == '4' }}"
+                sequence:
+                  - action: light.turn_off
+                    target:
+                      entity_id: !input light_entity
+
+    default:
+      - action: mqtt.publish
+        data:
+          topic: "{{ light_set_topic }}"
+          payload: '{"brightness_move_onoff": {{ dim_value }}}'
+
+      - wait_for_trigger:
+          - trigger: mqtt
+            topic: "{{ base_topic ~ '/' ~ controller ~ '/action' }}"
+            payload: "{{ release_action }}"
+          - trigger: mqtt
+            topic: "{{ base_topic ~ '/' ~ controller }}"
+            value_template: "{{ value_json.action | default('') == release_action }}"
+        timeout:
+          seconds: "{{ release_timeout }}"
+        continue_on_timeout: true
+
+      - action: mqtt.publish
+        data:
+          topic: "{{ light_set_topic }}"
+          payload: '{"brightness_move": "stop"}'
+
+mode: single
+max_exceeded: silent
