@@ -1,57 +1,63 @@
 blueprint:
-  name: EnOcean PTM 215Z - Continuous Dimming + Scripts
-  author: Codex for seel
+  name: EnOcean PTM 215Z - Dimmer + Szenen (v2)
+  author: Claude for ESDN83
   description: >
-    Blueprint fuer Friends-of-Hue / EnOcean PTM 215Z mit Zigbee2MQTT.
-    Kurzdruck startet Scripts oder schaltet aus. Gedrueckthalten dimmt
-    kontinuierlich per brightness_move_onoff und stoppt beim Loslassen.
+    Friends-of-Hue / EnOcean PTM 215Z (Zigbee2MQTT).
+
+    - Kurzdruck Taste 1 (oben links): zeitbasierte Szene anwenden (4 Zeitfenster konfigurierbar).
+    - Kurzdruck Taste 3 (oben rechts): Szenen-Zyklus durch ausgewahlte Szenen.
+    - Kurzdruck Taste 2 oder 4 (unten): Licht aus.
+    - Halten Taste 1 oder 3: heller dimmen (continuous, brightness_move_onoff).
+    - Halten Taste 2 oder 4: dunkler dimmen.
+    - Loslassen: Dimmen stoppt.
+
+    Komplett self-contained: keine externen Scripte notwendig.
+    Picker fur Zyklus-Szenen und Zeit-Szenen direkt im Blueprint.
   domain: automation
   homeassistant:
     min_version: 2024.6.0
+
   input:
     mqtt_settings:
       name: MQTT / Controller
+      icon: mdi:radio-tower
       input:
         base_topic:
           name: Zigbee2MQTT Base Topic
+          description: Wie in Zigbee2MQTT konfiguriert, normalerweise "zigbee2mqtt".
           default: zigbee2mqtt
+          selector:
+            text:
         controller:
-          name: Controller-Name
-          description: Friendly Name des Schalters in Zigbee2MQTT, z.B. Wohnzimmer_Switch.
+          name: Controller-Name (Z2M Friendly Name)
+          description: Friendly Name des Schalters in Zigbee2MQTT, z.B. "Wohnzimmer_Switch".
           default: ""
+          selector:
+            text:
         light_zigbee2mqtt_name:
-          name: Zigbee2MQTT Licht-Name
-          description: Friendly Name der Lampe oder Gruppe in Zigbee2MQTT, z.B. Wohnzimmer_Lampen.
+          name: Licht / Gruppe in Zigbee2MQTT
+          description: >
+            Friendly Name der Lampe oder Gruppe in Zigbee2MQTT (fur das Dimmen via MQTT).
+            Z.B. "Wohnzimmer_Lampen".
           default: ""
-    targets:
-      name: Licht und Scripts
-      input:
+          selector:
+            text:
         light_entity:
-          name: Licht in Home Assistant
+          name: Licht-Entitat in Home Assistant
+          description: Wird fur "Aus"-Aktion und Status verwendet.
           selector:
             entity:
               filter:
                 - domain: light
-        time_based_light_script:
-          name: Script Zeitbasiertes Licht
-          default: ""
-          selector:
-            entity:
-              filter:
-                - domain: script
-        scene_cycle_script:
-          name: Script Szenen-Zyklus
-          default: ""
-          selector:
-            entity:
-              filter:
-                - domain: script
+
     dimming:
-      name: Dimmen
+      name: Dimm-Verhalten
+      icon: mdi:brightness-6
       input:
         hold_delay:
-          name: Haltezeit-Erkennung
-          default: 500
+          name: Hold-Erkennung
+          description: Zeit in Millisekunden, ab der ein Druck als "Halten" gilt.
+          default: 400
           selector:
             number:
               min: 100
@@ -59,15 +65,19 @@ blueprint:
               step: 50
               unit_of_measurement: ms
         dim_speed:
-          name: Dimmgeschwindigkeit
-          default: 50
+          name: Dimm-Geschwindigkeit
+          description: >
+            Helligkeit-Einheiten pro Sekunde (Zigbee2MQTT brightness_move_onoff).
+            50 = langsam, 150 = mittel, 254 = sehr schnell.
+          default: 180
           selector:
             number:
-              min: 1
+              min: 10
               max: 254
-              step: 1
+              step: 10
         release_timeout:
-          name: Sicherheits-Timeout
+          name: Sicherheits-Timeout fur Release
+          description: Falls kein Release empfangen wird, stoppt das Dimmen spatestens nach diesen Sekunden.
           default: 8
           selector:
             number:
@@ -76,81 +86,226 @@ blueprint:
               step: 1
               unit_of_measurement: s
 
+    time_based:
+      name: Zeitbasiertes Licht (Taste 1 kurz)
+      icon: mdi:clock-time-four-outline
+      description: >
+        Welche Szene wird bei kurzem Druck auf Taste 1 angewendet,
+        abhangig von der aktuellen Uhrzeit?
+      input:
+        time_scene_night:
+          name: Nacht-Szene (22:00 - 06:00)
+          selector:
+            entity:
+              filter:
+                - domain: scene
+        time_scene_morning:
+          name: Morgen-Szene (06:00 - 10:00)
+          selector:
+            entity:
+              filter:
+                - domain: scene
+        time_scene_day:
+          name: Tag-Szene (10:00 - 17:00)
+          selector:
+            entity:
+              filter:
+                - domain: scene
+        time_scene_evening:
+          name: Abend-Szene (17:00 - 22:00)
+          selector:
+            entity:
+              filter:
+                - domain: scene
+        scene_transition:
+          name: Szenen-Ubergang
+          description: Dauer in Sekunden fur den Ubergang in die Szene.
+          default: 1
+          selector:
+            number:
+              min: 0
+              max: 10
+              step: 1
+              unit_of_measurement: s
+
+    scene_cycle:
+      name: Szenen-Zyklus (Taste 3 kurz)
+      icon: mdi:playlist-play
+      description: >
+        Reihenfolge der Szenen, die bei jedem kurzen Druck auf Taste 3 nacheinander geschaltet werden.
+        Auswahl-Reihenfolge = Zyklus-Reihenfolge.
+      input:
+        cycle_scenes:
+          name: Szenen-Liste
+          description: Mindestens 2 Szenen auswahlen.
+          selector:
+            entity:
+              filter:
+                - domain: scene
+              multiple: true
+        cycle_counter:
+          name: Counter-Helfer fur Zyklus-Position
+          description: >
+            Counter-Helfer der den aktuellen Index speichert. In HA unter
+            Einstellungen -> Helfer -> Counter anlegen (Start 0, Schritt 1,
+            Min 0, Max ggf. 100). Bestehender Counter z.B. counter.wohnzimmer_szene_index.
+          selector:
+            entity:
+              filter:
+                - domain: counter
+
+mode: restart
+max_exceeded: silent
+
 trigger_variables:
   base_topic: !input base_topic
   controller: !input controller
 
 triggers:
   - trigger: mqtt
-    topic: "{{ base_topic ~ '/' ~ controller ~ '/action' }}"
-    id: action_topic
-  - trigger: mqtt
     topic: "{{ base_topic ~ '/' ~ controller }}"
-    id: json_topic
+    id: switch_json
 
 conditions:
   - condition: template
     value_template: >
-      {% set action = trigger.payload if trigger.id == 'action_topic' else trigger.payload_json.action | default('') %}
-      {{ action is string and action.startswith('press_') }}
+      {% set action = trigger.payload_json.action | default('') %}
+      {{ action is string and action.startswith('press_')
+         and action in ['press_1','press_2','press_3','press_4'] }}
 
 variables:
+  base_topic: !input base_topic
+  controller: !input controller
   light_zigbee2mqtt_name: !input light_zigbee2mqtt_name
-  time_based_light_script: !input time_based_light_script
-  scene_cycle_script: !input scene_cycle_script
   hold_delay: !input hold_delay
   dim_speed: !input dim_speed
   release_timeout: !input release_timeout
+  scene_transition: !input scene_transition
+  cycle_scenes: !input cycle_scenes
+  cycle_counter: !input cycle_counter
+  time_scene_morning: !input time_scene_morning
+  time_scene_day: !input time_scene_day
+  time_scene_evening: !input time_scene_evening
+  time_scene_night: !input time_scene_night
 
 actions:
   - variables:
-      action: "{{ trigger.payload if trigger.id == 'action_topic' else trigger.payload_json.action | default('') }}"
-      button: "{{ action | regex_replace('^(press_|release_)', '') }}"
-      release_action: "{{ 'release_' ~ button }}"
+      action: "{{ trigger.payload_json.action }}"
+      button: "{{ action | regex_replace('^press_', '') }}"
+      release_action: "release_{{ button }}"
       dim_direction: "{{ 1 if button in ['1', '3'] else -1 }}"
-      dim_value: "{{ (dim_speed | int) * (dim_direction | int) }}"
+      dim_value: "{{ (dim_speed | int) * dim_direction }}"
       light_set_topic: "{{ base_topic ~ '/' ~ light_zigbee2mqtt_name ~ '/set' }}"
 
+  # Warten ob Release vor hold_delay kommt -> Kurzdruck, sonst -> Halten
   - wait_for_trigger:
-      - trigger: mqtt
-        topic: "{{ base_topic ~ '/' ~ controller ~ '/action' }}"
-        payload: "{{ release_action }}"
       - trigger: mqtt
         topic: "{{ base_topic ~ '/' ~ controller }}"
         value_template: "{{ value_json.action | default('') == release_action }}"
     timeout:
-      milliseconds: "{{ hold_delay }}"
+      milliseconds: !input hold_delay
     continue_on_timeout: true
 
   - choose:
-      - alias: Kurzdruck
+      # ----- KURZDRUCK -----
+      - alias: Kurzdruck erkannt
         conditions:
           - condition: template
             value_template: "{{ wait.trigger is not none }}"
         sequence:
           - choose:
-              - conditions:
+              # Taste 1 kurz: zeitbasierte Szene
+              - alias: Taste 1 - zeitbasierte Szene
+                conditions:
                   - condition: template
-                    value_template: "{{ button == '1' and time_based_light_script | length > 0 }}"
+                    value_template: "{{ button == '1' }}"
                 sequence:
-                  - action: script.turn_on
-                    target:
-                      entity_id: !input time_based_light_script
-              - conditions:
+                  - choose:
+                      - alias: Nacht 22:00 - 06:00
+                        conditions:
+                          - condition: or
+                            conditions:
+                              - condition: time
+                                after: "22:00:00"
+                              - condition: time
+                                before: "06:00:00"
+                        sequence:
+                          - action: scene.turn_on
+                            target:
+                              entity_id: !input time_scene_night
+                            data:
+                              transition: !input scene_transition
+                      - alias: Morgen 06:00 - 10:00
+                        conditions:
+                          - condition: time
+                            after: "06:00:00"
+                            before: "10:00:00"
+                        sequence:
+                          - action: scene.turn_on
+                            target:
+                              entity_id: !input time_scene_morning
+                            data:
+                              transition: !input scene_transition
+                      - alias: Tag 10:00 - 17:00
+                        conditions:
+                          - condition: time
+                            after: "10:00:00"
+                            before: "17:00:00"
+                        sequence:
+                          - action: scene.turn_on
+                            target:
+                              entity_id: !input time_scene_day
+                            data:
+                              transition: !input scene_transition
+                    default:
+                      - action: scene.turn_on
+                        target:
+                          entity_id: !input time_scene_evening
+                        data:
+                          transition: !input scene_transition
+
+              # Taste 2 kurz: Licht aus
+              - alias: Taste 2 - Licht aus
+                conditions:
                   - condition: template
                     value_template: "{{ button == '2' }}"
                 sequence:
                   - action: light.turn_off
                     target:
                       entity_id: !input light_entity
-              - conditions:
+
+              # Taste 3 kurz: Szenen-Zyklus
+              - alias: Taste 3 - Szenen-Zyklus
+                conditions:
                   - condition: template
-                    value_template: "{{ button == '3' and scene_cycle_script | length > 0 }}"
+                    value_template: "{{ button == '3' and (cycle_scenes | length) > 0 }}"
                 sequence:
-                  - action: script.turn_on
-                    target:
-                      entity_id: !input scene_cycle_script
-              - conditions:
+                  - variables:
+                      cycle_len: "{{ cycle_scenes | length }}"
+                      cycle_index: "{{ states(cycle_counter) | int(0) % cycle_len }}"
+                      next_scene: "{{ cycle_scenes[cycle_index | int] }}"
+                  - action: scene.turn_on
+                    data:
+                      entity_id: "{{ next_scene }}"
+                      transition: !input scene_transition
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ (states(cycle_counter) | int(0)) >= (cycle_len | int) - 1 }}"
+                        sequence:
+                          - action: counter.set_value
+                            target:
+                              entity_id: !input cycle_counter
+                            data:
+                              value: 0
+                    default:
+                      - action: counter.increment
+                        target:
+                          entity_id: !input cycle_counter
+
+              # Taste 4 kurz: Licht aus
+              - alias: Taste 4 - Licht aus
+                conditions:
                   - condition: template
                     value_template: "{{ button == '4' }}"
                 sequence:
@@ -158,27 +313,25 @@ actions:
                     target:
                       entity_id: !input light_entity
 
+    # ----- HALTEN: Dimmen starten -----
     default:
-      - action: mqtt.publish
+      - alias: Halten - Dimmen starten (brightness_move_onoff)
+        action: mqtt.publish
         data:
           topic: "{{ light_set_topic }}"
           payload: '{"brightness_move_onoff": {{ dim_value }}}'
 
-      - wait_for_trigger:
-          - trigger: mqtt
-            topic: "{{ base_topic ~ '/' ~ controller ~ '/action' }}"
-            payload: "{{ release_action }}"
+      - alias: Auf Release warten
+        wait_for_trigger:
           - trigger: mqtt
             topic: "{{ base_topic ~ '/' ~ controller }}"
             value_template: "{{ value_json.action | default('') == release_action }}"
         timeout:
-          seconds: "{{ release_timeout }}"
+          seconds: !input release_timeout
         continue_on_timeout: true
 
-      - action: mqtt.publish
+      - alias: Dimmen stoppen
+        action: mqtt.publish
         data:
           topic: "{{ light_set_topic }}"
           payload: '{"brightness_move": "stop"}'
-
-mode: single
-max_exceeded: silent
