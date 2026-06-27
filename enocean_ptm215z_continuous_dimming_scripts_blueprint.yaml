@@ -169,9 +169,9 @@ triggers:
 conditions:
   - condition: template
     value_template: >
-      {% set action = trigger.payload_json.action | default('') %}
-      {{ action is string and action.startswith('press_')
-         and action in ['press_1','press_2','press_3','press_4'] }}
+      {% set pj = trigger.payload_json | default({}) %}
+      {% set action = (pj.action if pj is mapping else '') | default('') %}
+      {{ action in ['press_1','press_2','press_3','press_4'] }}
 
 variables:
   base_topic: !input base_topic
