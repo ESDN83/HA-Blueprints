@@ -86,73 +86,31 @@ blueprint:
               step: 1
               unit_of_measurement: s
 
-    time_based:
-      name: Zeitbasiertes Licht (Taste 1 kurz)
-      icon: mdi:clock-time-four-outline
+    scripts:
+      name: Script-Aktionen (Taste 1 + 3 kurz)
+      icon: mdi:script-text-play
       description: >
-        Welche Szene wird bei kurzem Druck auf Taste 1 angewendet,
-        abhangig von der aktuellen Uhrzeit?
+        Hier waehlst du je ein HA-Script aus, das bei kurzem Druck auf Taste 1
+        bzw. Taste 3 ausgefuehrt wird. So kannst du beliebige Logik (Szenen,
+        Zeitfenster, scene_presets.apply_preset, Cycle-Counter, etc.) direkt
+        in HA pflegen, ohne den Blueprint anzufassen.
       input:
-        time_scene_night:
-          name: Nacht-Szene (22:00 - 06:00)
+        script_time_based:
+          name: Script fuer Taste 1 kurz (zeitbasiert)
+          description: z.B. ein Script das je nach Uhrzeit eine andere Szene/Preset anwendet.
+          default: ""
           selector:
             entity:
               filter:
-                - domain: scene
-        time_scene_morning:
-          name: Morgen-Szene (06:00 - 10:00)
+                - domain: script
+        script_cycle:
+          name: Script fuer Taste 3 kurz (Szenen-Zyklus)
+          description: z.B. ein Script das einen Counter erhoeht und das nachste Preset anwendet.
+          default: ""
           selector:
             entity:
               filter:
-                - domain: scene
-        time_scene_day:
-          name: Tag-Szene (10:00 - 17:00)
-          selector:
-            entity:
-              filter:
-                - domain: scene
-        time_scene_evening:
-          name: Abend-Szene (17:00 - 22:00)
-          selector:
-            entity:
-              filter:
-                - domain: scene
-        scene_transition:
-          name: Szenen-Ubergang
-          description: Dauer in Sekunden fur den Ubergang in die Szene.
-          default: 1
-          selector:
-            number:
-              min: 0
-              max: 10
-              step: 1
-              unit_of_measurement: s
-
-    scene_cycle:
-      name: Szenen-Zyklus (Taste 3 kurz)
-      icon: mdi:playlist-play
-      description: >
-        Reihenfolge der Szenen, die bei jedem kurzen Druck auf Taste 3 nacheinander geschaltet werden.
-        Auswahl-Reihenfolge = Zyklus-Reihenfolge.
-      input:
-        cycle_scenes:
-          name: Szenen-Liste
-          description: Mindestens 2 Szenen auswahlen.
-          selector:
-            entity:
-              filter:
-                - domain: scene
-              multiple: true
-        cycle_counter:
-          name: Counter-Helfer fur Zyklus-Position
-          description: >
-            Counter-Helfer der den aktuellen Index speichert. In HA unter
-            Einstellungen -> Helfer -> Counter anlegen (Start 0, Schritt 1,
-            Min 0, Max ggf. 100). Bestehender Counter z.B. counter.wohnzimmer_szene_index.
-          selector:
-            entity:
-              filter:
-                - domain: counter
+                - domain: script
 
 mode: restart
 max_exceeded: silent
@@ -180,13 +138,8 @@ variables:
   hold_delay: !input hold_delay
   dim_speed: !input dim_speed
   release_timeout: !input release_timeout
-  scene_transition: !input scene_transition
-  cycle_scenes: !input cycle_scenes
-  cycle_counter: !input cycle_counter
-  time_scene_morning: !input time_scene_morning
-  time_scene_day: !input time_scene_day
-  time_scene_evening: !input time_scene_evening
-  time_scene_night: !input time_scene_night
+  script_time_based: !input script_time_based
+  script_cycle: !input script_cycle
 
 actions:
   - variables:
@@ -214,55 +167,15 @@ actions:
             value_template: "{{ wait.trigger is not none }}"
         sequence:
           - choose:
-              # Taste 1 kurz: zeitbasierte Szene
-              - alias: Taste 1 - zeitbasierte Szene
+              # Taste 1 kurz: zeitbasiertes Script
+              - alias: Taste 1 - Script zeitbasiert
                 conditions:
                   - condition: template
-                    value_template: "{{ button == 1 }}"
+                    value_template: "{{ button == 1 and script_time_based | length > 0 }}"
                 sequence:
-                  - choose:
-                      - alias: Nacht 22:00 - 06:00
-                        conditions:
-                          - condition: or
-                            conditions:
-                              - condition: time
-                                after: "22:00:00"
-                              - condition: time
-                                before: "06:00:00"
-                        sequence:
-                          - action: scene.turn_on
-                            target:
-                              entity_id: !input time_scene_night
-                            data:
-                              transition: !input scene_transition
-                      - alias: Morgen 06:00 - 10:00
-                        conditions:
-                          - condition: time
-                            after: "06:00:00"
-                            before: "10:00:00"
-                        sequence:
-                          - action: scene.turn_on
-                            target:
-                              entity_id: !input time_scene_morning
-                            data:
-                              transition: !input scene_transition
-                      - alias: Tag 10:00 - 17:00
-                        conditions:
-                          - condition: time
-                            after: "10:00:00"
-                            before: "17:00:00"
-                        sequence:
-                          - action: scene.turn_on
-                            target:
-                              entity_id: !input time_scene_day
-                            data:
-                              transition: !input scene_transition
-                    default:
-                      - action: scene.turn_on
-                        target:
-                          entity_id: !input time_scene_evening
-                        data:
-                          transition: !input scene_transition
+                  - action: script.turn_on
+                    target:
+                      entity_id: "{{ script_time_based }}"
 
               # Taste 2 kurz: Licht aus
               - alias: Taste 2 - Licht aus
@@ -274,34 +187,15 @@ actions:
                     target:
                       entity_id: !input light_entity
 
-              # Taste 3 kurz: Szenen-Zyklus
-              - alias: Taste 3 - Szenen-Zyklus
+              # Taste 3 kurz: Szenen-Zyklus Script
+              - alias: Taste 3 - Script Szenen-Zyklus
                 conditions:
                   - condition: template
-                    value_template: "{{ button == 3 and (cycle_scenes | length) > 0 }}"
+                    value_template: "{{ button == 3 and script_cycle | length > 0 }}"
                 sequence:
-                  - variables:
-                      cycle_len: "{{ cycle_scenes | length }}"
-                      cycle_index: "{{ states(cycle_counter) | int(0) % cycle_len }}"
-                      next_scene: "{{ cycle_scenes[cycle_index | int] }}"
-                  - action: scene.turn_on
-                    data:
-                      entity_id: "{{ next_scene }}"
-                      transition: !input scene_transition
-                  - choose:
-                      - conditions:
-                          - condition: template
-                            value_template: "{{ (states(cycle_counter) | int(0)) >= (cycle_len | int) - 1 }}"
-                        sequence:
-                          - action: counter.set_value
-                            target:
-                              entity_id: !input cycle_counter
-                            data:
-                              value: 0
-                    default:
-                      - action: counter.increment
-                        target:
-                          entity_id: !input cycle_counter
+                  - action: script.turn_on
+                    target:
+                      entity_id: "{{ script_cycle }}"
 
               # Taste 4 kurz: Licht aus
               - alias: Taste 4 - Licht aus
